@@ -2,8 +2,9 @@ mod environment;
 mod fsm;
 mod net;
 mod packet;
+mod util;
 
-use crate::environment::{RunningMode, get_args};
+use crate::environment::{get_args, RunningMode};
 
 fn main() {
     let cli_args = get_args();
@@ -22,9 +23,12 @@ fn main() {
                 version: 4,
                 asn: 65001,
                 hold_time: 90,
-                bgp_id: 0x01010101,
+                bgp_id: util::ipv4_str_to_u32("192.168.0.108").unwrap(),
+                opt_len: 0,
+                opts: Vec::new(),
             };
-            let bytes = open_msg.serialize();
+            let bgp_msg = packet::BGPMessage::Open(open_msg);
+            let bytes = bgp_msg.serialize();
             net::start_client_and_send_msg(cli_args.address, bytes.as_slice());
         }
         RunningMode::Both => {

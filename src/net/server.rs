@@ -1,4 +1,4 @@
-use crate::packet::parse_header;
+use crate::packet::{parse_message, BGPMessage};
 use std::io::Read;
 use std::net::TcpListener;
 
@@ -24,17 +24,14 @@ pub fn start_server(server_opts: ServerOpts) {
                 let mut buf = [0; 4096];
 
                 let n_read = stream.read(&mut buf).unwrap();
+                println!("Read {} bytes", n_read);
 
-                match parse_header(&buf[0..n_read]) {
-                    Ok(header) => {
-                        println!("Header successfully parsed: {:?}", header);
-                    }
-                    Err(e) => {
-                        println!("Error parsing header: {:?}", e);
+                let bgp_message = parse_message(&buf).unwrap();
+                match bgp_message {
+                    BGPMessage::Open(open) => {
+                        println!("Got OPEN message with values {:?}", open);
                     }
                 }
-
-                println!("Read {} bytes", n_read);
             }
             Err(e) => {
                 println!("Error while connecting: {}", e);
