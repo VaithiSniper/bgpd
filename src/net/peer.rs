@@ -19,12 +19,25 @@ impl Peer {
             ip_addr: socket_addr.ip(),
         }
     }
-    pub fn transition(&mut self, new_state: BGPState) {
+    pub fn transition(&mut self, new_state: BGPState) -> Result<BGPState, String> {
+        match (self.state, new_state) {
+            (BGPState::Idle, BGPState::OpenSent) => {}
+            (BGPState::Idle, BGPState::OpenConfirm) => {}
+            (BGPState::OpenSent, BGPState::Established) => {}
+            (BGPState::OpenConfirm, BGPState::Established) => {}
+            _ => {
+                return Err(format!(
+                    "Invalid FSM transition for peer={} from {:?} to {:?}",
+                    self.ip_addr, self.state, new_state
+                ));
+            }
+        }
         println!(
             "Transitioning BGP State for peer={} from {:?} to {:?}",
             self.ip_addr, self.state, new_state
         );
         self.state = new_state;
+        Ok(self.state)
     }
     pub fn send_message(&mut self, bgp_msg: BGPMessage) -> Result<(), String> {
         let bytes = bgp_msg.serialize();

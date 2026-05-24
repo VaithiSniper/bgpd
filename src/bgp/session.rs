@@ -26,7 +26,7 @@ impl Session {
                 // For OPEN:
                 // - Transition to OpenConfirm
                 // - Send KeepAlive
-                self.peer.transition(OpenConfirm);
+                self.peer.transition(OpenConfirm)?;
 
                 let keepalive = BGPMessage::KeepAlive;
                 println!("Sending KEEPALIVE");
@@ -36,7 +36,7 @@ impl Session {
                 println!("Got KEEPALIVE");
                 // For KEEPALIVE:
                 // - Transition to Established
-                self.peer.transition(Established);
+                self.peer.transition(Established)?;
 
                 Ok(())
             }
