@@ -26,7 +26,7 @@ pub fn parse_message(buf: &[u8]) -> Result<BGPMessage, String> {
             let open = parse_open_msg(payload_buf)?;
             return Ok(BGPMessage::Open(open));
         }
-        BGPMessageType::KeepAlive => {}
+        BGPMessageType::KeepAlive => return Ok(BGPMessage::KeepAlive),
         BGPMessageType::Close => {}
         BGPMessageType::Update => {}
         BGPMessageType::Notification => {}

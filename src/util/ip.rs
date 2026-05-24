@@ -1,7 +1,9 @@
 use std::net::Ipv4Addr;
 
 pub fn ipv4_str_to_u32(ip: &str) -> Result<u32, String> {
-    let addr: Ipv4Addr = ip.parse().map_err(|e| format!("Not a valid IPv4: {}", e))?;
+    let addr: Ipv4Addr = ip
+        .parse()
+        .map_err(|e| format!("Not a valid IPv4 address: {}", e))?;
     Ok(u32::from(addr))
 }
 

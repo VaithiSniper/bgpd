@@ -1,5 +1,5 @@
-use crate::packet::{parse_message, BGPMessage};
-use std::io::Read;
+use crate::bgp::session::Session;
+use crate::net::peer::Peer;
 use std::net::TcpListener;
 
 pub struct ServerOpts {
@@ -14,27 +14,21 @@ impl ServerOpts {
     }
 }
 pub fn start_server(server_opts: ServerOpts) {
+    println!("Started server");
     let listener = TcpListener::bind(&server_opts.full_listen_addr).unwrap();
     println!("Listening on {}", server_opts.full_listen_addr);
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => {
-                println!("Peer connected: {}", stream.peer_addr().unwrap());
-                let mut buf = [0; 4096];
-
-                let n_read = stream.read(&mut buf).unwrap();
-                println!("Read {} bytes", n_read);
-
-                let bgp_message = parse_message(&buf).unwrap();
-                match bgp_message {
-                    BGPMessage::Open(open) => {
-                        println!("Got OPEN message with values {:?}", open);
-                    }
-                }
+            Ok(stream) => {
+                let peer_socket_addr = stream.peer_addr().unwrap();
+                println!("Peer connected: {}", peer_socket_addr);
+                let peer: Peer = Peer::new(stream, peer_socket_addr);
+                let mut session: Session = Session::new(peer);
+                session.run().unwrap();
             }
             Err(e) => {
-                println!("Error while connecting: {}", e);
+                println!("Error while accepting: {}", e);
             }
         }
     }

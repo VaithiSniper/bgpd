@@ -1,3 +1,4 @@
+mod bgp;
 mod environment;
 mod fsm;
 mod net;
@@ -18,19 +19,7 @@ fn main() {
             };
             net::start_server(opts);
         }
-        RunningMode::Client => {
-            let open_msg = packet::OpenMessage {
-                version: 4,
-                asn: 65001,
-                hold_time: 90,
-                bgp_id: util::ipv4_str_to_u32("192.168.0.108").unwrap(),
-                opt_len: 0,
-                opts: Vec::new(),
-            };
-            let bgp_msg = packet::BGPMessage::Open(open_msg);
-            let bytes = bgp_msg.serialize();
-            net::start_client_and_send_msg(cli_args.address, bytes.as_slice());
-        }
+        RunningMode::Client => net::start_client(&cli_args.address),
         RunningMode::Both => {
             println!("Running as both server and client")
         }
