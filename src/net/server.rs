@@ -1,6 +1,6 @@
+use std::io::Read;
+use std::net::TcpListener;
 use crate::packet::parse_header;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
 
 pub struct ServerOpts {
     pub listen_addr: String,
@@ -41,13 +41,4 @@ pub fn start_server(server_opts: ServerOpts) {
             }
         }
     }
-}
-
-pub fn start_client_and_send_msg(peer_addr: String, data: &[u8]) {
-    let mut stream = TcpStream::connect(&peer_addr).unwrap();
-    println!("Connected to server: {}", peer_addr);
-
-    stream.write_all(data).unwrap();
-
-    println!("Wrote {} bytes", data.len());
 }
