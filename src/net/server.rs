@@ -1,6 +1,6 @@
+use crate::packet::parse_header;
 use std::io::Read;
 use std::net::TcpListener;
-use crate::packet::parse_header;
 
 pub struct ServerOpts {
     pub listen_addr: String,

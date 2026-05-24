@@ -3,7 +3,7 @@ mod fsm;
 mod net;
 mod packet;
 
-use crate::environment::{get_args, RunningMode};
+use crate::environment::{RunningMode, get_args};
 
 fn main() {
     let cli_args = get_args();
