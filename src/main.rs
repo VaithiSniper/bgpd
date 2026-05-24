@@ -1,7 +1,9 @@
+mod bgp;
 mod environment;
 mod fsm;
 mod net;
 mod packet;
+mod util;
 
 use crate::environment::{get_args, RunningMode};
 
@@ -17,16 +19,7 @@ fn main() {
             };
             net::start_server(opts);
         }
-        RunningMode::Client => {
-            let open_msg = packet::OpenMessage {
-                version: 4,
-                asn: 65001,
-                hold_time: 90,
-                bgp_id: 0x01010101,
-            };
-            let bytes = open_msg.serialize();
-            net::start_client_and_send_msg(cli_args.address, bytes.as_slice());
-        }
+        RunningMode::Client => net::start_client(&cli_args.address),
         RunningMode::Both => {
             println!("Running as both server and client")
         }

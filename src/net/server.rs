@@ -1,6 +1,6 @@
-use std::io::Read;
+use crate::bgp::session::Session;
+use crate::net::peer::Peer;
 use std::net::TcpListener;
-use crate::packet::parse_header;
 
 pub struct ServerOpts {
     pub listen_addr: String,
@@ -14,30 +14,21 @@ impl ServerOpts {
     }
 }
 pub fn start_server(server_opts: ServerOpts) {
+    println!("Started server");
     let listener = TcpListener::bind(&server_opts.full_listen_addr).unwrap();
     println!("Listening on {}", server_opts.full_listen_addr);
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => {
-                println!("Peer connected: {}", stream.peer_addr().unwrap());
-                let mut buf = [0; 4096];
-
-                let n_read = stream.read(&mut buf).unwrap();
-
-                match parse_header(&buf[0..n_read]) {
-                    Ok(header) => {
-                        println!("Header successfully parsed: {:?}", header);
-                    }
-                    Err(e) => {
-                        println!("Error parsing header: {:?}", e);
-                    }
-                }
-
-                println!("Read {} bytes", n_read);
+            Ok(stream) => {
+                let peer_socket_addr = stream.peer_addr().unwrap();
+                println!("Peer connected: {}", peer_socket_addr);
+                let peer: Peer = Peer::new(stream, peer_socket_addr);
+                let mut session: Session = Session::new(peer);
+                session.run().unwrap();
             }
             Err(e) => {
-                println!("Error while connecting: {}", e);
+                println!("Error while accepting: {}", e);
             }
         }
     }
