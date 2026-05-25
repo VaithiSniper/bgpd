@@ -25,6 +25,7 @@ impl Peer {
             (BGPState::Idle, BGPState::OpenConfirm) => {}
             (BGPState::OpenSent, BGPState::Established) => {}
             (BGPState::OpenConfirm, BGPState::Established) => {}
+            (BGPState::Established, BGPState::Established) => {}
             _ => {
                 return Err(format!(
                     "Invalid FSM transition for peer={} from {:?} to {:?}",
@@ -55,5 +56,9 @@ impl Peer {
         }
 
         parse_message(&buf[..n_bytes])
+    }
+
+    pub fn is_established(&self) -> bool {
+        self.state == BGPState::Established
     }
 }

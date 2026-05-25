@@ -1,21 +1,30 @@
-use crate::fsm::BGPState::{Established, OpenConfirm};
+use crate::fsm::BGPState::{Established, OpenConfirm, OpenSent};
 use crate::net::Peer;
 use crate::packet::{BGPMessage, OpenMessage};
 use crate::util;
+use std::sync::{Arc, Mutex};
 
 pub struct Session {
-    pub peer: Peer,
+    pub peer: Arc<Mutex<Peer>>,
 }
 
 impl Session {
     pub fn new(peer: Peer) -> Self {
-        Self { peer }
+        Self {
+            peer: Arc::new(Mutex::new(peer)),
+        }
     }
 
     pub fn run(&mut self) -> Result<(), String> {
         loop {
-            let msg = self.peer.recv_message()?;
-            self.handle_msg(msg)?
+            let msg = {
+                let mut peer = self.peer.lock().unwrap();
+                peer.recv_message()?
+            };
+            if let Err(e) = self.handle_msg(msg) {
+                println!("handle_msg err: {:?}", e);
+                return Err(e);
+            }
         }
     }
 
@@ -26,18 +35,25 @@ impl Session {
                 // For OPEN:
                 // - Transition to OpenConfirm
                 // - Send KeepAlive
-                self.peer.transition(OpenConfirm)?;
-
+                let mut peer = self.peer.lock().unwrap();
+                peer.transition(OpenConfirm)?;
                 let keepalive = BGPMessage::KeepAlive;
                 println!("Sending KEEPALIVE");
-                self.peer.send_message(keepalive)
+                peer.send_message(keepalive)
             }
             BGPMessage::KeepAlive => {
                 println!("Got KEEPALIVE");
                 // For KEEPALIVE:
                 // - Transition to Established
-                self.peer.transition(Established)?;
-
+                // - Start self KEEPALIVE timer
+                let mut peer = self.peer.lock().unwrap();
+                let was_established = peer.is_established();
+                peer.transition(Established)?;
+                drop(peer);
+                if !was_established {
+                    // If it is freshly established, setup timer
+                    self.start_keepalive_timer()?;
+                }
                 Ok(())
             }
         }
@@ -56,8 +72,31 @@ impl Session {
         };
         println!("Sending OPEN: {:?}", open_msg);
         let bgp_msg = BGPMessage::Open(open_msg);
-        self.peer.send_message(bgp_msg).map_err(|e| e.to_string())?;
 
+        let mut peer = self.peer.lock().unwrap();
+        peer.send_message(bgp_msg).map_err(|e| e.to_string())?;
+        peer.transition(OpenSent)?;
+
+        Ok(())
+    }
+
+    pub fn start_keepalive_timer(&self) -> Result<(), String> {
+        println!("Start keepalive timer");
+        let peer = Arc::clone(&self.peer);
+        std::thread::spawn(move || {
+            loop {
+                println!("Waiting for keepalive timer interval of 5s");
+                std::thread::sleep(std::time::Duration::from_secs(5));
+
+                println!("Sending periodic KEEPALIVE");
+                let mut peer = peer.lock().unwrap();
+                if let Err(e) = peer.send_message(BGPMessage::KeepAlive) {
+                    println!("send_message err: {:?}", e);
+                    break;
+                }
+                drop(peer);
+            }
+        });
         Ok(())
     }
 }
