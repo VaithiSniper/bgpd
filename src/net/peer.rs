@@ -19,6 +19,9 @@ impl Peer {
             ip_addr: socket_addr.ip(),
         }
     }
+    pub fn clone_stream(&mut self) -> Result<TcpStream, String> {
+        self.stream.try_clone().map_err(|e| e.to_string())
+    }
     pub fn transition(&mut self, new_state: BGPState) -> Result<BGPState, String> {
         match (self.state, new_state) {
             (BGPState::Idle, BGPState::OpenSent) => {}
