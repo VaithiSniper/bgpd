@@ -1,8 +1,9 @@
-use crate::packet::{BGPHeader, BGPMessageType, OpenMessage, BGP_HEADER_LEN};
+use crate::packet::{BGPHeader, BGPMessageType, NotificationMessage, OpenMessage, BGP_HEADER_LEN};
 
 pub enum BGPMessage {
     Open(OpenMessage),
     KeepAlive,
+    Notification(NotificationMessage),
 }
 
 impl BGPMessage {
@@ -21,6 +22,10 @@ impl BGPMessage {
                     msg_type: BGPMessageType::KeepAlive,
                 };
                 pkt_bytes = hdr.serialize()
+            }
+            BGPMessage::Notification(notification_msg) => {
+                let payload = notification_msg.serialize_payload();
+                pkt_bytes = payload;
             }
         }
 

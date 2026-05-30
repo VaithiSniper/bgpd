@@ -1,4 +1,6 @@
-use crate::packet::{parse_open_msg, BGPHeader, BGPMessage, BGPMessageType, BGP_HEADER_LEN};
+use crate::packet::{
+    parse_notification_msg, parse_open_msg, BGPHeader, BGPMessage, BGPMessageType, BGP_HEADER_LEN,
+};
 
 // | Marker (16 bytes) | Length (2 bytes) | Message Type (1 byte) |
 pub fn parse_header(buf: &[u8]) -> Result<BGPHeader, String> {
@@ -29,7 +31,10 @@ pub fn parse_message(buf: &[u8]) -> Result<BGPMessage, String> {
         BGPMessageType::KeepAlive => return Ok(BGPMessage::KeepAlive),
         BGPMessageType::Close => {}
         BGPMessageType::Update => {}
-        BGPMessageType::Notification => {}
+        BGPMessageType::Notification => {
+            let notification = parse_notification_msg(payload_buf)?;
+            return Ok(BGPMessage::Notification(notification));
+        }
     }
 
     Err("Unknown BGP Message Type received, skipping processing".to_string())
