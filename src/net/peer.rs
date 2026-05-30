@@ -19,32 +19,63 @@ impl Peer {
             ip_addr: socket_addr.ip(),
         }
     }
-    pub fn transition(&mut self, new_state: BGPState) -> Result<BGPState, String> {
-        match (self.state, new_state) {
-            (BGPState::Idle, BGPState::OpenSent) => {}
-            (BGPState::Idle, BGPState::OpenConfirm) => {}
-            (BGPState::OpenSent, BGPState::Established) => {}
-            (BGPState::OpenConfirm, BGPState::Established) => {}
-            _ => {
-                return Err(format!(
-                    "Invalid FSM transition for peer={} from {:?} to {:?}",
-                    self.ip_addr, self.state, new_state
-                ));
-            }
-        }
-        println!(
-            "Transitioning BGP State for peer={} from {:?} to {:?}",
-            self.ip_addr, self.state, new_state
-        );
-        self.state = new_state;
-        Ok(self.state)
+
+    pub fn clone_reader(&self) -> Result<PeerReader, String> {
+        let cloned_stream = self.stream.try_clone().map_err(|e| e.to_string())?;
+        Ok(PeerReader {
+            stream: cloned_stream,
+        })
     }
+
+    pub fn clone_writer(&self) -> Result<PeerWriter, String> {
+        Ok(PeerWriter {
+            stream: self.stream.try_clone().map_err(|e| e.to_string())?,
+        })
+    }
+
+    pub fn clone_stream(&mut self) -> Result<TcpStream, String> {
+        self.stream.try_clone().map_err(|e| e.to_string())
+    }
+
     pub fn send_message(&mut self, bgp_msg: BGPMessage) -> Result<(), String> {
         let bytes = bgp_msg.serialize();
         self.stream.write_all(&bytes).map_err(|e| e.to_string())?;
 
         Ok(())
     }
+
+    pub fn transition(&mut self, new_state: BGPState) -> Result<BGPState, String> {
+        match (self.state, new_state) {
+            (BGPState::Idle, BGPState::OpenSent) => {}
+            (BGPState::Idle, BGPState::OpenConfirm) => {}
+            (BGPState::OpenSent, BGPState::Established) => {}
+            (BGPState::OpenConfirm, BGPState::Established) => {}
+            (BGPState::Established, BGPState::Established) => {}
+            _ => {
+                return Err(format!(
+                    "[FSM] Invalid FSM transition for peer={} from {:?} to {:?}",
+                    self.ip_addr, self.state, new_state
+                ));
+            }
+        }
+        println!(
+            "[FSM] Transitioning BGP State for peer={} from {:?} to {:?}",
+            self.ip_addr, self.state, new_state
+        );
+        self.state = new_state;
+        Ok(self.state)
+    }
+
+    pub fn is_established(&self) -> bool {
+        self.state == BGPState::Established
+    }
+}
+
+pub struct PeerReader {
+    stream: TcpStream,
+}
+
+impl PeerReader {
     pub fn recv_message(&mut self) -> Result<BGPMessage, String> {
         let mut buf = [0; 4096];
 
@@ -55,5 +86,18 @@ impl Peer {
         }
 
         parse_message(&buf[..n_bytes])
+    }
+}
+
+pub struct PeerWriter {
+    stream: TcpStream,
+}
+
+impl PeerWriter {
+    pub fn send_message(&mut self, bgp_msg: BGPMessage) -> Result<(), String> {
+        let bytes = bgp_msg.serialize();
+        self.stream.write_all(&bytes).map_err(|e| e.to_string())?;
+
+        Ok(())
     }
 }
