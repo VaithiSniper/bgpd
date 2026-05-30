@@ -46,11 +46,15 @@ impl Peer {
 
     pub fn transition(&mut self, new_state: BGPState) -> Result<BGPState, String> {
         match (self.state, new_state) {
+            // Opening
             (BGPState::Idle, BGPState::OpenSent) => {}
             (BGPState::Idle, BGPState::OpenConfirm) => {}
+            // Establishment (X -> Established)
             (BGPState::OpenSent, BGPState::Established) => {}
             (BGPState::OpenConfirm, BGPState::Established) => {}
             (BGPState::Established, BGPState::Established) => {}
+            // Teardown (X -> Idle)
+            (_, BGPState::Idle) => {}
             _ => {
                 return Err(format!(
                     "[FSM] Invalid FSM transition for peer={} from {:?} to {:?}",

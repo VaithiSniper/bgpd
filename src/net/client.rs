@@ -1,11 +1,15 @@
-use crate::bgp::session::Session;
+use crate::bgp::session::{Session, HOLD_INTERVAL_S};
 use crate::net::peer::Peer;
 use std::net::TcpStream;
+use std::time::Duration;
 
 pub fn start_client(peer_addr: &str) {
     println!("Started client");
     let mut session = create_session_with_peer(peer_addr).unwrap();
     session.initiate().unwrap();
+    session
+        .timers
+        .set_hold_interval(Duration::from_secs(HOLD_INTERVAL_S));
     session.run();
 }
 

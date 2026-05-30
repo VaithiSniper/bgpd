@@ -3,19 +3,19 @@ use crate::fsm::BGPState::{Established, OpenConfirm, OpenSent};
 use crate::net::Peer;
 use crate::packet::{BGPMessage, OpenMessage};
 use crate::util;
-use std::any::Any;
 use std::net::Shutdown;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const HOLD_INTERVAL_S: u64 = 90;
-const KEEPALIVE_INTERVAL_S: u64 = HOLD_INTERVAL_S / 3;
+pub const HOLD_INTERVAL_S: u64 = 10;
+pub const KEEPALIVE_INTERVAL_S: u64 = HOLD_INTERVAL_S * 9 / 3;
 
 pub enum SessionEvent {
     MessageReceived(BGPMessage),
     HoldTimerRefresh,
     HoldTimerExpired,
     KeepAliveTimerExpired,
+    PeerDisconnected(),
 }
 
 pub struct Session {
@@ -56,10 +56,12 @@ impl Session {
         Ok(())
     }
 
-    pub fn teardown(&mut self) -> Result<BGPState, String> {
-        println!("Tearing down connection with peer");
+    pub fn teardown(&mut self) -> Result<(), String> {
+        println!("[SESSION] Tearing down connection with peer");
         self.peer.stream.shutdown(Shutdown::Both).unwrap();
-        self.peer.transition(BGPState::Idle)
+        self.peer.transition(BGPState::Idle)?;
+
+        Ok(())
     }
 
     pub fn run(&mut self) {
@@ -68,30 +70,36 @@ impl Session {
         self.start_reader_thread(tx_clone_reader);
         loop {
             let event = self.rx_event_chan.recv().unwrap();
-            self.dispatch_event_handler(event);
+            if let Err(e) = self.dispatch_event_handler(event) {
+                println!("[SESSION] Terminating session: {}", e);
+                break;
+            }
         }
     }
 
-    pub fn dispatch_event_handler(&mut self, event: SessionEvent) {
+    pub fn dispatch_event_handler(&mut self, event: SessionEvent) -> Result<(), String> {
         match event {
             SessionEvent::MessageReceived(msg) => self.handle_msg(msg),
             SessionEvent::KeepAliveTimerExpired => self.handle_keepalive_expiry(),
             SessionEvent::HoldTimerExpired => self.handle_hold_expiry(),
             SessionEvent::HoldTimerRefresh => self.handle_hold_refresh(),
+            SessionEvent::PeerDisconnected() => self.handle_peer_disconnect(),
         }
     }
 
-    fn handle_msg(&mut self, msg: BGPMessage) {
+    fn handle_msg(&mut self, msg: BGPMessage) -> Result<(), String> {
         match msg {
             BGPMessage::Open(open) => {
                 println!("[HANDLE_MSG] Got OPEN: {:?}", open);
                 // For OPEN:
                 // - Transition to OpenConfirm
+                // - Configure hold timer from msg
                 // - Send KeepAlive
-                self.peer.transition(OpenConfirm).unwrap();
-                let keepalive = BGPMessage::KeepAlive;
-                println!("Sending KEEPALIVE");
-                self.peer.send_message(keepalive).unwrap();
+                self.peer.transition(OpenConfirm)?;
+                let hold_interval = Duration::from_secs(open.hold_time as u64);
+                self.timers.set_hold_interval(hold_interval);
+                println!("[SENDER] Sending KEEPALIVE");
+                self.peer.send_message(BGPMessage::KeepAlive)
             }
             BGPMessage::KeepAlive => {
                 println!("[HANDLE_MSG] Got KEEPALIVE");
@@ -101,31 +109,41 @@ impl Session {
                 //     - Start timers
                 // - Refresh hold timer
                 let was_established = self.peer.is_established();
-                self.peer.transition(Established).unwrap();
+                self.peer.transition(Established)?;
                 if !was_established {
                     // If it is freshly established, setup timers in threads
                     self.start_timer_threads();
                 }
                 self.tx_event_chan
                     .send(SessionEvent::HoldTimerRefresh)
-                    .unwrap();
+                    .map_err(|e| e.to_string())
             }
         }
     }
 
-    pub fn handle_keepalive_expiry(&mut self) {
+    pub fn handle_keepalive_expiry(&mut self) -> Result<(), String> {
         println!("[KEEPALIVE] Timer expired, sending new KEEPALIVE message");
-        self.peer.send_message(BGPMessage::KeepAlive).unwrap();
+        self.peer.send_message(BGPMessage::KeepAlive)?;
         self.timers.update_last_keepalive_tx();
+        Ok(())
     }
 
-    pub fn handle_hold_expiry(&mut self) {
+    pub fn handle_hold_expiry(&mut self) -> Result<(), String> {
         println!("[HOLD] Timer expired, tearing down session");
+        self.teardown()?;
+        Err("Hold timer expired, terminating session".to_string())
     }
 
-    pub fn handle_hold_refresh(&mut self) {
+    pub fn handle_hold_refresh(&mut self) -> Result<(), String> {
         println!("[HOLD] Got keepalive, refreshing hold timer");
         self.timers.update_last_keepalive_rx();
+        Ok(())
+    }
+
+    pub fn handle_peer_disconnect(&mut self) -> Result<(), String> {
+        println!("[SESSION] Peer disconnected");
+        self.teardown()?;
+        Err("Peer disconnected, terminating session".to_string())
     }
 
     pub fn start_reader_thread(&mut self, tx_event_chan: mpsc::Sender<SessionEvent>) {
@@ -133,11 +151,28 @@ impl Session {
         let mut peer_reader = self.peer.clone_reader().unwrap();
         std::thread::spawn(move || {
             loop {
-                let msg = peer_reader.recv_message().unwrap();
-                println!("[READER] Got message {:?}", msg.type_id());
-                tx_event_chan
-                    .send(SessionEvent::MessageReceived(msg))
-                    .unwrap();
+                match peer_reader.recv_message() {
+                    Ok(msg) => {
+                        println!("[READER] Got message");
+                        if tx_event_chan
+                            .send(SessionEvent::MessageReceived(msg))
+                            .is_err()
+                        {
+                            println!("[READER] Session already gone");
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        println!("[READER] {}", e);
+                        if tx_event_chan
+                            .send(SessionEvent::PeerDisconnected())
+                            .is_err()
+                        {
+                            println!("[READER] Session already gone");
+                        }
+                        break;
+                    }
+                }
             }
         });
     }
@@ -163,8 +198,8 @@ impl Session {
 pub struct Timers {
     last_keepalive_tx: Arc<Mutex<Instant>>, // Last keepalive sent (For keepalive timer)
     last_keepalive_rx: Arc<Mutex<Instant>>, // Last keepalive recv (For hold timer)
-    pub keepalive_interval: Duration,
-    pub hold_interval: Duration,
+    keepalive_interval: Duration,
+    hold_interval: Duration,
     pub enable_timer_monitors: bool,
 }
 
@@ -177,6 +212,10 @@ impl Timers {
             hold_interval: Duration::from_secs(HOLD_INTERVAL_S),
             enable_timer_monitors,
         }
+    }
+
+    pub fn set_hold_interval(&mut self, hold_interval: Duration) {
+        self.hold_interval = hold_interval;
     }
 
     pub fn update_last_keepalive_tx(&mut self) {
@@ -192,15 +231,19 @@ impl Timers {
     pub fn start_keepalive_timer_thread(&mut self, tx_event_chan: mpsc::Sender<SessionEvent>) {
         println!("[THREAD_SPAWN] Start keepalive timer thread");
         let timer = Arc::clone(&self.last_keepalive_tx);
+        let interval = self.keepalive_interval;
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(1));
                 let timer_inst = timer.lock().unwrap();
-                if timer_inst.elapsed().as_secs() > KEEPALIVE_INTERVAL_S {
-                    println!("Keepalive timer expired");
-                    tx_event_chan
+                if timer_inst.elapsed().as_secs() > interval.as_secs() {
+                    if tx_event_chan
                         .send(SessionEvent::KeepAliveTimerExpired)
-                        .unwrap();
+                        .is_err()
+                    {
+                        println!("[KEEPALIVE_THREAD] Session already gone");
+                        break;
+                    }
                 }
             }
         });
@@ -209,13 +252,16 @@ impl Timers {
     pub fn start_hold_timer_thread(&mut self, tx_event_chan: mpsc::Sender<SessionEvent>) {
         println!("[THREAD_SPAWN] Start hold timer thread");
         let timer = Arc::clone(&self.last_keepalive_rx);
+        let interval = self.hold_interval;
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(1));
                 let timer_inst = timer.lock().unwrap();
-                if timer_inst.elapsed().as_secs() > HOLD_INTERVAL_S {
-                    println!("Hold timer expired");
-                    tx_event_chan.send(SessionEvent::HoldTimerExpired).unwrap();
+                if timer_inst.elapsed().as_secs() > interval.as_secs() {
+                    if tx_event_chan.send(SessionEvent::HoldTimerExpired).is_err() {
+                        println!("[HOLD_THREAD] Session already gone");
+                        break;
+                    }
                 }
             }
         });
@@ -225,7 +271,7 @@ impl Timers {
         let timer = Arc::clone(&self.last_keepalive_tx);
         std::thread::spawn(move || {
             loop {
-                std::thread::sleep(std::time::Duration::from_secs(HOLD_INTERVAL_S / 3));
+                std::thread::sleep(Duration::from_secs(HOLD_INTERVAL_S / 3));
                 let timer_inst = timer.lock().unwrap();
                 println!(
                     "Hold timer elapsed seconds -- {}",
@@ -239,7 +285,7 @@ impl Timers {
         let timer = Arc::clone(&self.last_keepalive_rx);
         std::thread::spawn(move || {
             loop {
-                std::thread::sleep(std::time::Duration::from_secs(HOLD_INTERVAL_S / 9));
+                std::thread::sleep(Duration::from_secs(HOLD_INTERVAL_S / 9));
                 let timer_inst = timer.lock().unwrap();
                 println!(
                     "Hold timer elapsed seconds -- {}",
