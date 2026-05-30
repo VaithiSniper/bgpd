@@ -25,7 +25,7 @@ pub fn start_server(server_opts: ServerOpts) {
                 println!("Peer connected: {}", peer_socket_addr);
                 let peer: Peer = Peer::new(stream, peer_socket_addr);
                 let mut session: Session = Session::new(peer);
-                session.run().unwrap();
+                session.run();
             }
             Err(e) => {
                 println!("Error while accepting: {}", e);

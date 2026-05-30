@@ -6,7 +6,7 @@ pub fn start_client(peer_addr: &str) {
     println!("Started client");
     let mut session = create_session_with_peer(peer_addr).unwrap();
     session.initiate().unwrap();
-    session.run().unwrap();
+    session.run();
 }
 
 pub fn create_session_with_peer(peer_addr: &str) -> Result<Session, String> {
