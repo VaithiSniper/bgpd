@@ -62,7 +62,7 @@ impl OpenMessage {
 }
 
 pub fn parse_open_msg(buf: &[u8]) -> Result<OpenMessage, String> {
-    if (buf.len() < OPEN_MESSAGE_MIN_LEN) {
+    if buf.len() < OPEN_MESSAGE_MIN_LEN {
         return Err("not enough bytes for BGP Open message".to_string());
     }
 

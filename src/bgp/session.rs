@@ -1,7 +1,7 @@
 use crate::fsm::BGPState;
 use crate::fsm::BGPState::{Established, OpenConfirm, OpenSent};
 use crate::net::Peer;
-use crate::packet::{BGPMessage, OpenMessage};
+use crate::packet::{BGPMessage, NotificationErrorCode, NotificationMessage, OpenMessage};
 use crate::util;
 use std::net::Shutdown;
 use std::sync::{mpsc, Arc, Mutex};
@@ -58,7 +58,10 @@ impl Session {
 
     pub fn teardown(&mut self) -> Result<(), String> {
         println!("[SESSION] Tearing down connection with peer");
-        self.peer.stream.shutdown(Shutdown::Both).unwrap();
+        self.peer
+            .stream
+            .shutdown(Shutdown::Both)
+            .map_err(|e| e.to_string())?;
         self.peer.transition(BGPState::Idle)?;
 
         Ok(())
@@ -118,6 +121,14 @@ impl Session {
                     .send(SessionEvent::HoldTimerRefresh)
                     .map_err(|e| e.to_string())
             }
+            BGPMessage::Notification(notification) => {
+                println!("[HANDLE_MSG] Got NOTIFICATION: {:?}", notification);
+                // For NOTIFICATION:
+                // - Check error code
+                // - Most cases require session teardown
+                self.teardown()?;
+                Err(format!("Received notification {:?}", notification.err_code))
+            }
         }
     }
 
@@ -129,6 +140,11 @@ impl Session {
     }
 
     pub fn handle_hold_expiry(&mut self) -> Result<(), String> {
+        println!("[HANDLE_MSG] Timer expired, sending notification message");
+        let notification_msg =
+            NotificationMessage::new(NotificationErrorCode::HoldTimerExpired, 0, Vec::new());
+        self.peer
+            .send_message(BGPMessage::Notification(notification_msg))?;
         println!("[HOLD] Timer expired, tearing down session");
         self.teardown()?;
         Err("Hold timer expired, terminating session".to_string())
