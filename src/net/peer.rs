@@ -1,22 +1,17 @@
-use crate::fsm::BGPState;
 use crate::packet::{parse_message, BGPMessage};
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream};
 
 pub struct Peer {
     pub stream: TcpStream,
-    state: BGPState,
-    socket_addr: SocketAddr,
-    ip_addr: IpAddr,
+    pub socket_addr: SocketAddr,
 }
 
 impl Peer {
     pub fn new(stream: TcpStream, socket_addr: SocketAddr) -> Peer {
         Peer {
-            state: BGPState::Idle,
             stream,
             socket_addr,
-            ip_addr: socket_addr.ip(),
         }
     }
 
@@ -42,36 +37,6 @@ impl Peer {
         self.stream.write_all(&bytes).map_err(|e| e.to_string())?;
 
         Ok(())
-    }
-
-    pub fn transition(&mut self, new_state: BGPState) -> Result<BGPState, String> {
-        match (self.state, new_state) {
-            // Opening
-            (BGPState::Idle, BGPState::OpenSent) => {}
-            (BGPState::Idle, BGPState::OpenConfirm) => {}
-            // Establishment (X -> Established)
-            (BGPState::OpenSent, BGPState::Established) => {}
-            (BGPState::OpenConfirm, BGPState::Established) => {}
-            (BGPState::Established, BGPState::Established) => {}
-            // Teardown (X -> Idle)
-            (_, BGPState::Idle) => {}
-            _ => {
-                return Err(format!(
-                    "[FSM] Invalid FSM transition for peer={} from {:?} to {:?}",
-                    self.ip_addr, self.state, new_state
-                ));
-            }
-        }
-        println!(
-            "[FSM] Transitioning BGP State for peer={} from {:?} to {:?}",
-            self.ip_addr, self.state, new_state
-        );
-        self.state = new_state;
-        Ok(self.state)
-    }
-
-    pub fn is_established(&self) -> bool {
-        self.state == BGPState::Established
     }
 }
 

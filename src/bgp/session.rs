@@ -1,5 +1,4 @@
 use crate::fsm::BGPState;
-use crate::fsm::BGPState::{Established, OpenConfirm, OpenSent};
 use crate::net::Peer;
 use crate::packet::{BGPMessage, NotificationErrorCode, NotificationMessage, OpenMessage};
 use crate::util;
@@ -20,6 +19,7 @@ pub enum SessionEvent {
 
 pub struct Session {
     pub peer: Peer,
+    state: BGPState,
     pub timers: Timers,
     pub tx_event_chan: mpsc::Sender<SessionEvent>,
     pub rx_event_chan: mpsc::Receiver<SessionEvent>,
@@ -30,10 +30,45 @@ impl Session {
         let (tx, rx) = mpsc::channel::<SessionEvent>();
         Self {
             peer,
+            state: BGPState::Idle,
             timers: Timers::new(false),
             tx_event_chan: tx,
             rx_event_chan: rx,
         }
+    }
+
+    pub fn transition(&mut self, new_state: BGPState) -> Result<BGPState, String> {
+        match (self.state, new_state) {
+            // Opening
+            (BGPState::Idle, BGPState::OpenSent) => {}
+            (BGPState::Idle, BGPState::OpenConfirm) => {}
+            // Establishment (X -> Established)
+            (BGPState::OpenSent, BGPState::Established) => {}
+            (BGPState::OpenConfirm, BGPState::Established) => {}
+            (BGPState::Established, BGPState::Established) => {}
+            // Teardown (X -> Idle)
+            (_, BGPState::Idle) => {}
+            _ => {
+                return Err(format!(
+                    "[FSM] Invalid FSM transition for peer={} from {:?} to {:?}",
+                    self.peer.socket_addr.ip(),
+                    self.state,
+                    new_state
+                ));
+            }
+        }
+        println!(
+            "[FSM] Transitioning BGP State for peer={} from {:?} to {:?}",
+            self.peer.socket_addr.ip(),
+            self.state,
+            new_state
+        );
+        self.state = new_state;
+        Ok(self.state)
+    }
+
+    pub fn is_established(&self) -> bool {
+        self.state == BGPState::Established
     }
 
     pub fn initiate(&mut self) -> Result<(), String> {
@@ -51,7 +86,7 @@ impl Session {
         let bgp_msg = BGPMessage::Open(open_msg);
 
         self.peer.send_message(bgp_msg).map_err(|e| e.to_string())?;
-        self.peer.transition(OpenSent)?;
+        self.transition(BGPState::OpenSent)?;
 
         Ok(())
     }
@@ -62,7 +97,7 @@ impl Session {
             .stream
             .shutdown(Shutdown::Both)
             .map_err(|e| e.to_string())?;
-        self.peer.transition(BGPState::Idle)?;
+        self.transition(BGPState::Idle)?;
 
         Ok(())
     }
@@ -98,7 +133,7 @@ impl Session {
                 // - Transition to OpenConfirm
                 // - Configure hold timer from msg
                 // - Send KeepAlive
-                self.peer.transition(OpenConfirm)?;
+                self.transition(BGPState::OpenConfirm)?;
                 let hold_interval = Duration::from_secs(open.hold_time as u64);
                 self.timers.set_hold_interval(hold_interval);
                 println!("[SENDER] Sending KEEPALIVE");
@@ -111,8 +146,8 @@ impl Session {
                 // - If first time transitioning into establishing:
                 //     - Start timers
                 // - Refresh hold timer
-                let was_established = self.peer.is_established();
-                self.peer.transition(Established)?;
+                let was_established = self.is_established();
+                self.transition(BGPState::Established)?;
                 if !was_established {
                     // If it is freshly established, setup timers in threads
                     self.start_timer_threads();
