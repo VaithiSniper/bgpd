@@ -1,11 +1,5 @@
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 
-#[derive(Debug, Clone, ValueEnum)]
-pub enum RunningMode {
-    Server,
-    Client,
-    Both,
-}
 #[derive(Debug, Parser)]
 #[command(name = "bgpd")]
 #[command(version = "1.0")]
@@ -15,8 +9,7 @@ pub enum RunningMode {
 )]
 pub struct CLIArgs {
     #[arg(value_enum)]
-    pub running_mode: RunningMode,
-    pub address: String,
+    pub config_file_path: String,
 }
 
 pub fn get_args() -> CLIArgs {
