@@ -1,35 +1,76 @@
 # bgpd
 
-A minimal BGP daemon written in Rust. Supports BGP unicast and BGP Unnumbered.
+A minimal BGP daemon written in Rust.
 
-> Work in progress — currently implements BGP OPEN message serialization and basic TCP session establishment.
+> Work in progress — currently supports BGP session establishment, KEEPALIVE exchange, hold timers, NOTIFICATION
+> messages, and configuration-driven neighbors.
 
 ## Features
 
-- Run as a **server** (listens for incoming BGP connections) or **client** (initiates a session and sends a BGP OPEN
-  message)
-- BGP OPEN message construction (version 4, configurable ASN, hold time, BGP ID)
-- CLI interface via [clap](https://github.com/clap-rs/clap)
+### Session Management
+
+* BGP OPEN message serialization and parsing
+* BGP KEEPALIVE message support
+* BGP NOTIFICATION message support
+* TCP session establishment and teardown
+* Hold timer monitoring
+* Periodic KEEPALIVE transmission
+* Event-driven session architecture
+* Basic BGP Finite State Machine (FSM)
+
+### Router Daemon
+
+* Configuration-driven router startup
+* Listener for inbound BGP connections
+* Outbound neighbor session initiation
+* Passive neighbors (listen-only)
+* Multiple concurrent BGP sessions
+
+## Configuration
+
+Routers are configured using TOML.
+
+Example:
+
+```toml
+router_id = "127.0.0.1"
+local_as = 65001
+listen_addr = "127.0.0.1:8000"
+
+[[neighbors]]
+address = "127.0.0.1:9000"
+peer_as = 65002
+passive = true
+```
+
+### Router Fields
+
+| Field         | Description                    |
+|---------------|--------------------------------|
+| `router_id`   | BGP Router ID                  |
+| `local_as`    | Local Autonomous System Number |
+| `listen_addr` | Address and port to listen on  |
+
+### Neighbor Fields
+
+| Field     | Description                                    |
+|-----------|------------------------------------------------|
+| `address` | Neighbor address and port                      |
+| `peer_as` | Expected remote ASN                            |
+| `passive` | If `true`, do not initiate outbound connection |
 
 ## Usage
 
+```sh
+bgpd <CONFIG_PATH>
 ```
-bgpd <MODE> <ADDRESS>
-```
-
-| Argument  | Description                           |
-|-----------|---------------------------------------|
-| `MODE`    | `server`, `client`, or `both`         |
-| `ADDRESS` | Address and port, e.g. `0.0.0.0:8000` |
 
 ### Examples
 
 ```sh
-# Start the server
-bgpd server 0.0.0.0:8000
+bgpd examples/configs/server.toml
 
-# Connect as a client and send a BGP OPEN message
-bgpd client 0.0.0.0:8000
+bgpd examples/configs/client.toml
 ```
 
 ## Building & Running
@@ -38,19 +79,46 @@ bgpd client 0.0.0.0:8000
 # Build
 make build
 
-# Run as server
+# Run example router configurations
 make server
-
-# Run as client
 make client
 ```
 
-Default address is `0.0.0.0:8000` (configured in the `Makefile`).
+## Current Protocol Support
+
+| Message Type | Status |
+|--------------|--------|
+| OPEN         | ✔️     |
+| KEEPALIVE    | ✔️     |
+| NOTIFICATION | ✔️     |
+| UPDATE       | ✔️     |
+
+## Current Limitations
+
+* No UPDATE message support yet
+* No route advertisement or withdrawal
+* No RIB/FIB implementation
+* No route selection logic
+* No BGP capabilities negotiation
+* No session collision detection
+* No IPv6 support yet
+
+## Roadmap
+
+* UPDATE message support
+* Route advertisements and withdrawals
+* Routing Information Base (RIB)
+* Configuration reload support
+* BGP Unnumbered support
+* IPv6 address families
+* Session registry and management
+* Event-driven timer scheduler
 
 ## Requirements
 
-- Rust (edition 2024)
+* Rust (edition 2024)
 
 ## License
 
 TBD
+
