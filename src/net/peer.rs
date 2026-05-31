@@ -1,10 +1,10 @@
 use crate::packet::{parse_message, BGPMessage};
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream};
 
 pub struct Peer {
     pub stream: TcpStream,
-    pub socket_addr: SocketAddr,
+    socket_addr: SocketAddr,
 }
 
 impl Peer {
@@ -15,21 +15,21 @@ impl Peer {
         }
     }
 
+    pub fn close(&mut self) -> Result<(), String> {
+        self.stream
+            .shutdown(Shutdown::Both)
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn get_ip(&self) -> IpAddr {
+        self.socket_addr.ip()
+    }
+
     pub fn clone_reader(&self) -> Result<PeerReader, String> {
         let cloned_stream = self.stream.try_clone().map_err(|e| e.to_string())?;
         Ok(PeerReader {
             stream: cloned_stream,
         })
-    }
-
-    pub fn clone_writer(&self) -> Result<PeerWriter, String> {
-        Ok(PeerWriter {
-            stream: self.stream.try_clone().map_err(|e| e.to_string())?,
-        })
-    }
-
-    pub fn clone_stream(&mut self) -> Result<TcpStream, String> {
-        self.stream.try_clone().map_err(|e| e.to_string())
     }
 
     pub fn send_message(&mut self, bgp_msg: BGPMessage) -> Result<(), String> {
@@ -55,18 +55,5 @@ impl PeerReader {
         }
 
         parse_message(&buf[..n_bytes])
-    }
-}
-
-pub struct PeerWriter {
-    stream: TcpStream,
-}
-
-impl PeerWriter {
-    pub fn send_message(&mut self, bgp_msg: BGPMessage) -> Result<(), String> {
-        let bytes = bgp_msg.serialize();
-        self.stream.write_all(&bytes).map_err(|e| e.to_string())?;
-
-        Ok(())
     }
 }

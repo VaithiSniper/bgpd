@@ -70,11 +70,7 @@ impl NotificationMessage {
         let mut buf: Vec<u8> = Vec::new();
 
         // Construct header
-        let hdr = BGPHeader {
-            marker: [0xff; 16],
-            length: 29u16,
-            msg_type: BGPMessageType::Notification,
-        };
+        let hdr = BGPHeader::new(BGPMessageType::Notification, 21u16);
         let hdr_bytes = hdr.serialize();
         buf.extend_from_slice(&hdr_bytes);
 

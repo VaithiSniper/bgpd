@@ -8,7 +8,7 @@ pub enum BGPMessage {
 
 impl BGPMessage {
     pub fn serialize(&self) -> Vec<u8> {
-        let mut pkt_bytes: Vec<u8>;
+        let pkt_bytes: Vec<u8>;
 
         match self {
             BGPMessage::Open(open_msg) => {
@@ -16,11 +16,7 @@ impl BGPMessage {
                 pkt_bytes = payload;
             }
             BGPMessage::KeepAlive => {
-                let hdr = BGPHeader {
-                    marker: [0xff; 16],
-                    length: BGP_HEADER_LEN as u16,
-                    msg_type: BGPMessageType::KeepAlive,
-                };
+                let hdr = BGPHeader::new(BGPMessageType::KeepAlive, BGP_HEADER_LEN as u16);
                 pkt_bytes = hdr.serialize()
             }
             BGPMessage::Notification(notification_msg) => {

@@ -38,11 +38,7 @@ impl OpenMessage {
         let mut buf: Vec<u8> = Vec::new();
 
         // Construct header
-        let hdr = BGPHeader {
-            marker: [0xff; 16],
-            length: 29u16,
-            msg_type: BGPMessageType::Open,
-        };
+        let hdr = BGPHeader::new(BGPMessageType::Open, 29u16);
         let hdr_bytes = hdr.serialize();
         buf.extend_from_slice(&hdr_bytes);
 

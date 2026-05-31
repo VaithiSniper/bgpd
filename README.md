@@ -6,7 +6,8 @@ A minimal BGP daemon written in Rust. Supports BGP unicast and BGP Unnumbered.
 
 ## Features
 
-- Run as a **server** (listens for incoming BGP connections) or **client** (initiates a session and sends a BGP OPEN message)
+- Run as a **server** (listens for incoming BGP connections) or **client** (initiates a session and sends a BGP OPEN
+  message)
 - BGP OPEN message construction (version 4, configurable ASN, hold time, BGP ID)
 - CLI interface via [clap](https://github.com/clap-rs/clap)
 
@@ -16,9 +17,9 @@ A minimal BGP daemon written in Rust. Supports BGP unicast and BGP Unnumbered.
 bgpd <MODE> <ADDRESS>
 ```
 
-| Argument  | Description                          |
-|-----------|--------------------------------------|
-| `MODE`    | `server`, `client`, or `both`        |
+| Argument  | Description                           |
+|-----------|---------------------------------------|
+| `MODE`    | `server`, `client`, or `both`         |
 | `ADDRESS` | Address and port, e.g. `0.0.0.0:8000` |
 
 ### Examples

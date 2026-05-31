@@ -3,16 +3,9 @@ use crate::net::peer::Peer;
 use std::net::TcpListener;
 
 pub struct ServerOpts {
-    pub listen_addr: String,
-    pub listen_port: u16,
     pub full_listen_addr: String,
 }
-impl ServerOpts {
-    fn get_full_listen_addr(self) -> String {
-        let port_str = self.listen_port.to_string();
-        self.listen_addr + ":" + &port_str
-    }
-}
+
 pub fn start_server(server_opts: ServerOpts) {
     println!("Started server");
     let listener = TcpListener::bind(&server_opts.full_listen_addr).unwrap();
