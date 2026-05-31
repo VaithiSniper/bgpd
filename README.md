@@ -36,6 +36,8 @@ Example:
 router_id = "127.0.0.1"
 local_as = 65001
 listen_addr = "127.0.0.1:8000"
+keepalive_interval = 30
+hold_interval = 90
 
 [[neighbors]]
 address = "127.0.0.1:9000"
@@ -45,19 +47,21 @@ passive = true
 
 ### Router Fields
 
-| Field         | Description                    |
-|---------------|--------------------------------|
-| `router_id`   | BGP Router ID                  |
-| `local_as`    | Local Autonomous System Number |
-| `listen_addr` | Address and port to listen on  |
+| Field                | Description                                                                  |
+|----------------------|------------------------------------------------------------------------------|
+| `router_id`          | BGP Router ID.                                                               |
+| `local_as`           | Local Autonomous System Number.                                              |
+| `listen_addr`        | Address and port to listen on.                                               |
+| `keepalive_interval` | Interval to set frequency of sending KEEPALIVE.                              |
+| `hold_interval`      | Interval for hold timer expiry. Suggested value is 3x of KEEPALIVE interval. |
 
 ### Neighbor Fields
 
-| Field     | Description                                    |
-|-----------|------------------------------------------------|
-| `address` | Neighbor address and port                      |
-| `peer_as` | Expected remote ASN                            |
-| `passive` | If `true`, do not initiate outbound connection |
+| Field     | Description                                     |
+|-----------|-------------------------------------------------|
+| `address` | Neighbor address and port.                      |
+| `peer_as` | Expected remote ASN.                            |
+| `passive` | If `true`, do not initiate outbound connection. |
 
 ## Usage
 
