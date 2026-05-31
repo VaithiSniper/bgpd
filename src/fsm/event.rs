@@ -17,6 +17,7 @@ pub fn on_event(current_state: BGPState, event: BGPEvent) -> Result<BGPState, St
         (BGPState::Idle, BGPEvent::OpenReceived) => Ok(BGPState::OpenConfirm),
         (BGPState::OpenSent, BGPEvent::KeepAliveReceived) => Ok(BGPState::Established),
         (BGPState::OpenConfirm, BGPEvent::KeepAliveReceived) => Ok(BGPState::Established),
+        (BGPState::Established, BGPEvent::KeepAliveReceived) => Ok(BGPState::Established),
         (_, BGPEvent::PeerDisconnected) => Ok(BGPState::Idle),
         (_, BGPEvent::HoldTimerExpired) => Ok(BGPState::Idle),
         (_, BGPEvent::NotificationReceived) => Ok(BGPState::Idle),

@@ -1,4 +1,4 @@
-use crate::bgp::timers::Timers;
+use crate::bgp::timers::{TimerOpts, Timers};
 use crate::fsm::event::BGPEvent;
 use crate::fsm::BGPState;
 use crate::net::Peer;
@@ -6,9 +6,6 @@ use crate::packet::{BGPMessage, NotificationErrorCode, NotificationMessage, Open
 use crate::{fsm, util};
 use std::sync::mpsc;
 use std::time::Duration;
-
-pub const HOLD_INTERVAL_S: u64 = 10;
-pub const KEEPALIVE_INTERVAL_S: u64 = HOLD_INTERVAL_S * 9 / 3;
 
 pub enum SessionEvent {
     MessageReceived(BGPMessage),
@@ -18,23 +15,39 @@ pub enum SessionEvent {
     PeerDisconnected(),
 }
 
+#[derive(Debug, Clone)]
+pub struct SessionOpts {
+    router_id: String,
+    local_as: u16,
+}
+impl SessionOpts {
+    pub fn new(router_id: String, local_as: u16) -> SessionOpts {
+        SessionOpts {
+            router_id,
+            local_as,
+        }
+    }
+}
+
 pub struct Session {
     pub peer: Peer,
     state: BGPState,
     pub timers: Timers,
     pub tx_event_chan: mpsc::Sender<SessionEvent>,
     pub rx_event_chan: mpsc::Receiver<SessionEvent>,
+    pub opts: SessionOpts,
 }
 
 impl Session {
-    pub fn new(peer: Peer) -> Self {
+    pub fn new(cfg: SessionOpts, timer_cfg: TimerOpts, peer: Peer) -> Self {
         let (tx, rx) = mpsc::channel::<SessionEvent>();
         Self {
             peer,
             state: BGPState::Idle,
-            timers: Timers::new(false),
+            timers: Timers::new(timer_cfg),
             tx_event_chan: tx,
             rx_event_chan: rx,
+            opts: cfg,
         }
     }
 
@@ -55,13 +68,11 @@ impl Session {
     }
 
     pub fn initiate(&mut self) -> Result<(), String> {
-        let bgp_id =
-            util::ipv4_str_to_u32("192.168.0.108").map_err(|_| "Invalid IP address".to_string())?;
         let open_msg = OpenMessage {
             version: 4,
-            asn: 65001,
-            hold_time: HOLD_INTERVAL_S as u16,
-            bgp_id,
+            asn: self.opts.local_as,
+            hold_time: self.timers.cfg.hold_interval.as_secs() as u16,
+            bgp_id: util::ipv4_str_to_u32(&self.opts.router_id)?,
             opt_len: 0,
             opts: Vec::new(),
         };
@@ -217,7 +228,7 @@ impl Session {
         let tx_clone_hold_timer = self.tx_event_chan.clone();
         self.timers.start_hold_timer_thread(tx_clone_hold_timer);
 
-        if self.timers.enable_timer_monitors {
+        if self.timers.cfg.enable_timer_monitors {
             // - KEEPALIVE monitor: To dump value of keepalive timer
             // - HOLD monitor: To dump value of hold timer
             self.timers.start_hold_monitor();
