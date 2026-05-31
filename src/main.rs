@@ -13,8 +13,6 @@ fn main() {
     match cli_args.running_mode {
         RunningMode::Server => {
             let opts = net::ServerOpts {
-                listen_addr: "".to_string(),
-                listen_port: 0,
                 full_listen_addr: cli_args.address,
             };
             net::start_server(opts);
