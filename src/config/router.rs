@@ -5,8 +5,10 @@ use std::fs;
 #[derive(Debug, Deserialize)]
 pub struct RouterConfig {
     pub router_id: String,
-    pub local_as: u32,
+    pub local_as: u16,
     pub listen_addr: String,
+    pub keepalive_interval: u64,
+    pub hold_interval: u64,
     pub neighbors: Vec<NeighborConfig>,
 }
 

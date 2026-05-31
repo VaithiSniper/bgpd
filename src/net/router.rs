@@ -1,4 +1,5 @@
-use crate::bgp::session::Session;
+use crate::bgp::session::{Session, SessionOpts};
+use crate::bgp::timers::TimerOpts;
 use crate::config::neighbor::NeighborConfig;
 use crate::config::router::RouterConfig;
 use crate::net::peer::Peer;
@@ -6,7 +7,7 @@ use std::net::{TcpListener, TcpStream};
 
 pub struct RouterOpts {
     pub config_file_path: String,
-    pub router_config: RouterConfig,
+    pub config: RouterConfig,
     pub full_listen_addr: String,
 }
 
@@ -16,26 +17,38 @@ impl RouterOpts {
         let full_listen_addr: String = router_config.listen_addr.clone();
         Ok(RouterOpts {
             full_listen_addr,
-            router_config,
+            config: router_config,
             config_file_path,
         })
     }
 }
 
 pub struct Router {
-    router_opts: RouterOpts,
+    opts: RouterOpts,
+    session_opts: SessionOpts,
+    timer_opts: TimerOpts,
 }
 
 impl Router {
-    pub fn new(router_opts: RouterOpts) -> Result<Router, String> {
-        Ok(Router { router_opts })
+    pub fn new(opts: RouterOpts) -> Result<Router, String> {
+        let session_opts = SessionOpts::new(opts.config.router_id.clone(), opts.config.local_as);
+        let timer_opts = TimerOpts::new(
+            opts.config.keepalive_interval,
+            opts.config.hold_interval,
+            false,
+        );
+        Ok(Router {
+            opts,
+            session_opts,
+            timer_opts,
+        })
     }
     pub fn start(&mut self) {
         println!("----------- Starting router with config -----------");
-        println!("{:?}", self.router_opts.router_config);
+        println!("{:?}", self.opts.config);
         println!("--------------------------------------------------");
-        let listener = TcpListener::bind(&self.router_opts.full_listen_addr).unwrap();
-        println!("Listening on {}", self.router_opts.full_listen_addr);
+        let listener = TcpListener::bind(&self.opts.full_listen_addr).unwrap();
+        println!("Listening on {}", self.opts.full_listen_addr);
 
         // First check if there are non-passive neighbors to initiate connections to, add to our session list
         println!("Initiating outbound connections to configured neighbours");
@@ -48,7 +61,9 @@ impl Router {
                 Ok(stream) => {
                     let peer_socket_addr = stream.peer_addr().unwrap();
                     println!("Peer connected: {}", peer_socket_addr);
-                    let session: Session = Session::new(Peer::new(stream, peer_socket_addr));
+                    let peer = Peer::new(stream, peer_socket_addr);
+                    let session: Session =
+                        Session::new(self.session_opts.clone(), self.timer_opts.clone(), peer);
                     spawn_session_thread(session);
                 }
                 Err(e) => {
@@ -59,12 +74,12 @@ impl Router {
     }
 
     fn initiate_outbound_connections(&self) -> Result<(), String> {
-        let neighbors = &self.router_opts.router_config.neighbors;
+        let neighbors = &self.opts.config.neighbors;
         for neighbor in neighbors {
             if neighbor.passive {
                 continue;
             }
-            match initiate_outbound_connection(&neighbor) {
+            match self.initiate_outbound_connection(&neighbor) {
                 Ok(mut session) => {
                     println!(
                         "Successfully established connection to peer {}",
@@ -83,16 +98,24 @@ impl Router {
         }
         Ok(())
     }
+
+    fn initiate_outbound_connection(
+        &self,
+        neighbor_config: &NeighborConfig,
+    ) -> Result<Session, String> {
+        let stream = TcpStream::connect(&neighbor_config.address).map_err(|e| e.to_string())?;
+        let peer_socket_addr = stream.peer_addr().map_err(|e| e.to_string())?;
+        let peer = Peer::new(stream, peer_socket_addr);
+        Ok(Session::new(
+            self.session_opts.clone(),
+            self.timer_opts.clone(),
+            peer,
+        ))
+    }
 }
 
 fn spawn_session_thread(mut session: Session) {
     std::thread::spawn(move || {
         session.run();
     });
-}
-
-fn initiate_outbound_connection(neighbor_config: &NeighborConfig) -> Result<Session, String> {
-    let stream = TcpStream::connect(&neighbor_config.address).map_err(|e| e.to_string())?;
-    let peer_socket_addr = stream.peer_addr().map_err(|e| e.to_string())?;
-    Ok(Session::new(Peer::new(stream, peer_socket_addr)))
 }
