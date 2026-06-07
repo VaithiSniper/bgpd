@@ -1,4 +1,5 @@
 use crate::bgp::session::SessionEvent;
+use std::cmp::min;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -6,23 +7,17 @@ pub const MONITOR_PRINT_INTERVAL_KEEPALIVE_S: u64 = 10;
 pub const MONITOR_PRINT_INTERVAL_HOLD_S: u64 = MONITOR_PRINT_INTERVAL_KEEPALIVE_S * 3;
 
 #[derive(Debug, Clone)]
-pub struct TimerOpts {
-    keepalive_interval: Duration,
+pub struct TimerConfig {
+    pub keepalive_interval: Duration,
     pub hold_interval: Duration,
-    pub enable_timer_monitors: bool,
 }
-impl TimerOpts {
-    pub fn new(
-        keepalive_interval: u64,
-        hold_interval: u64,
-        enable_timer_monitors: bool,
-    ) -> TimerOpts {
+impl TimerConfig {
+    pub fn new(keepalive_interval: u64, hold_interval: u64) -> TimerConfig {
         let keepalive_interval = Duration::from_secs(keepalive_interval);
         let hold_interval = Duration::from_secs(hold_interval);
-        TimerOpts {
+        TimerConfig {
             keepalive_interval,
             hold_interval,
-            enable_timer_monitors,
         }
     }
 }
@@ -30,20 +25,36 @@ impl TimerOpts {
 pub struct Timers {
     last_keepalive_tx: Arc<Mutex<Instant>>, // Last keepalive sent (For keepalive timer)
     last_keepalive_rx: Arc<Mutex<Instant>>, // Last keepalive recv (For hold timer)
-    pub cfg: TimerOpts,
+    pub local_cfg: TimerConfig,
+    pub negotiated_cfg: TimerConfig,
 }
 
 impl Timers {
-    pub fn new(cfg: TimerOpts) -> Self {
+    pub fn new(cfg: TimerConfig) -> Self {
         Self {
             last_keepalive_tx: Arc::new(Mutex::new(Instant::now())),
             last_keepalive_rx: Arc::new(Mutex::new(Instant::now())),
-            cfg,
+            local_cfg: cfg.clone(),
+            negotiated_cfg: cfg,
         }
     }
 
-    pub fn set_hold_interval(&mut self, hold_interval: Duration) {
-        self.cfg.hold_interval = hold_interval;
+    pub fn negotiate(&mut self, peer_hold_time: u16) {
+        let local_hold_interval = self.local_cfg.hold_interval;
+        let peer_hold_interval = Duration::from_secs(peer_hold_time as u64);
+        // Per RFC, pick min
+        let neg_hold_interval = min(local_hold_interval, peer_hold_interval);
+        let neg_keepalive_interval = neg_hold_interval / 3;
+        // Update self
+        self.negotiated_cfg.hold_interval = neg_hold_interval;
+        self.negotiated_cfg.keepalive_interval = neg_keepalive_interval;
+        println!(
+            "[NEGOTIATION] Local Hold={}s Peer Hold={}s Negotiated Hold={}s Keepalive={}s",
+            local_hold_interval.as_secs(),
+            peer_hold_interval.as_secs(),
+            neg_hold_interval.as_secs(),
+            neg_keepalive_interval.as_secs(),
+        );
     }
 
     pub fn update_last_keepalive_tx(&mut self) {
@@ -59,7 +70,7 @@ impl Timers {
     pub fn start_keepalive_timer_thread(&mut self, tx_event_chan: mpsc::Sender<SessionEvent>) {
         println!("[THREAD_SPAWN] Start keepalive timer thread");
         let timer = Arc::clone(&self.last_keepalive_tx);
-        let interval = self.cfg.keepalive_interval;
+        let interval = self.negotiated_cfg.keepalive_interval;
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(1));
@@ -80,7 +91,7 @@ impl Timers {
     pub fn start_hold_timer_thread(&mut self, tx_event_chan: mpsc::Sender<SessionEvent>) {
         println!("[THREAD_SPAWN] Start hold timer thread");
         let timer = Arc::clone(&self.last_keepalive_rx);
-        let interval = self.cfg.hold_interval;
+        let interval = self.negotiated_cfg.hold_interval;
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(1));

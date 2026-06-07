@@ -1,11 +1,10 @@
-use crate::bgp::timers::{TimerOpts, Timers};
+use crate::bgp::timers::{TimerConfig, Timers};
 use crate::fsm::event::BGPEvent;
 use crate::fsm::BGPState;
 use crate::net::Peer;
 use crate::packet::{BGPMessage, NotificationErrorCode, NotificationMessage, OpenMessage};
 use crate::{fsm, util};
 use std::sync::mpsc;
-use std::time::Duration;
 
 pub enum SessionEvent {
     MessageReceived(BGPMessage),
@@ -19,14 +18,25 @@ pub enum SessionEvent {
 pub struct SessionOpts {
     router_id: String,
     local_as: u16,
+    pub enable_timer_monitors: bool,
 }
 impl SessionOpts {
-    pub fn new(router_id: String, local_as: u16) -> SessionOpts {
+    pub fn new(router_id: String, local_as: u16, enable_timer_monitors: bool) -> SessionOpts {
         SessionOpts {
             router_id,
             local_as,
+            enable_timer_monitors,
         }
     }
+}
+
+#[derive(Debug, Default)]
+pub struct SessionNegotiation {
+    pub open_sent: bool,
+    pub open_received: bool,
+
+    pub peer_asn: u16,
+    pub peer_router_id: u32,
 }
 
 pub struct Session {
@@ -36,10 +46,11 @@ pub struct Session {
     pub tx_event_chan: mpsc::Sender<SessionEvent>,
     pub rx_event_chan: mpsc::Receiver<SessionEvent>,
     pub opts: SessionOpts,
+    pub negotiation: SessionNegotiation,
 }
 
 impl Session {
-    pub fn new(cfg: SessionOpts, timer_cfg: TimerOpts, peer: Peer) -> Self {
+    pub fn new(cfg: SessionOpts, timer_cfg: TimerConfig, peer: Peer) -> Self {
         let (tx, rx) = mpsc::channel::<SessionEvent>();
         Self {
             peer,
@@ -48,6 +59,7 @@ impl Session {
             tx_event_chan: tx,
             rx_event_chan: rx,
             opts: cfg,
+            negotiation: SessionNegotiation::default(),
         }
     }
 
@@ -68,20 +80,8 @@ impl Session {
     }
 
     pub fn initiate(&mut self) -> Result<(), String> {
-        let open_msg = OpenMessage {
-            version: 4,
-            asn: self.opts.local_as,
-            hold_time: self.timers.cfg.hold_interval.as_secs() as u16,
-            bgp_id: util::ipv4_str_to_u32(&self.opts.router_id)?,
-            opt_len: 0,
-            opts: Vec::new(),
-        };
-        println!("[SENDER] Sending OPEN: {:?}", open_msg);
-        let bgp_msg = BGPMessage::Open(open_msg);
-
-        self.peer.send_message(bgp_msg).map_err(|e| e.to_string())?;
+        self.send_open()?;
         self.apply_fsm_event(BGPEvent::LocalStart)?;
-
         Ok(())
     }
 
@@ -116,17 +116,46 @@ impl Session {
         }
     }
 
+    fn send_open(&mut self) -> Result<(), String> {
+        let open_msg = OpenMessage {
+            version: 4,
+            asn: self.opts.local_as,
+            hold_time: self.timers.local_cfg.hold_interval.as_secs() as u16,
+            bgp_id: util::ipv4_str_to_u32(&self.opts.router_id)?,
+            opt_len: 0,
+            opts: Vec::new(),
+        };
+        println!("[SENDER] Sending OPEN: {:?}", open_msg);
+        let bgp_msg = BGPMessage::Open(open_msg);
+        self.peer.send_message(bgp_msg).map_err(|e| e.to_string())?;
+
+        self.negotiation.open_sent = true;
+
+        Ok(())
+    }
+
     fn handle_msg(&mut self, msg: BGPMessage) -> Result<(), String> {
         match msg {
             BGPMessage::Open(open) => {
                 println!("[HANDLE_MSG] Got OPEN: {:?}", open);
+                self.negotiation.open_received = true;
                 // For OPEN:
+                // - Validate peer metadata and store
+                // - If not sent OPEN yet, send it out now
+                // - Negotiate timers
                 // - Transition to OpenConfirm
-                // - Configure hold timer from msg
                 // - Send KeepAlive
+
+                self.negotiation.peer_asn = open.asn;
+                self.negotiation.peer_router_id = open.bgp_id;
+
+                if !self.negotiation.open_sent {
+                    self.send_open()?;
+                }
+                self.timers.negotiate(open.hold_time);
+
                 self.apply_fsm_event(BGPEvent::OpenReceived)?;
-                let hold_interval = Duration::from_secs(open.hold_time as u64);
-                self.timers.set_hold_interval(hold_interval);
+
                 println!("[SENDER] Sending KEEPALIVE");
                 self.peer.send_message(BGPMessage::KeepAlive)
             }
@@ -228,7 +257,7 @@ impl Session {
         let tx_clone_hold_timer = self.tx_event_chan.clone();
         self.timers.start_hold_timer_thread(tx_clone_hold_timer);
 
-        if self.timers.cfg.enable_timer_monitors {
+        if self.opts.enable_timer_monitors {
             // - KEEPALIVE monitor: To dump value of keepalive timer
             // - HOLD monitor: To dump value of hold timer
             self.timers.start_hold_monitor();

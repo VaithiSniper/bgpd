@@ -1,8 +1,8 @@
 router_id = "127.0.0.1"
 local_as = 65002
 listen_addr = "127.0.0.1:9000"
-keepalive_interval = 30
-hold_interval = 90
+keepalive_interval = 6
+hold_interval = 20
 
 [[neighbors]]
 address = "127.0.0.1:8000"

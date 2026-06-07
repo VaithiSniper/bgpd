@@ -1,5 +1,5 @@
 use crate::bgp::session::{Session, SessionOpts};
-use crate::bgp::timers::TimerOpts;
+use crate::bgp::timers::TimerConfig;
 use crate::config::neighbor::NeighborConfig;
 use crate::config::router::RouterConfig;
 use crate::net::peer::Peer;
@@ -26,17 +26,15 @@ impl RouterOpts {
 pub struct Router {
     opts: RouterOpts,
     session_opts: SessionOpts,
-    timer_opts: TimerOpts,
+    timer_opts: TimerConfig,
 }
 
 impl Router {
     pub fn new(opts: RouterOpts) -> Result<Router, String> {
-        let session_opts = SessionOpts::new(opts.config.router_id.clone(), opts.config.local_as);
-        let timer_opts = TimerOpts::new(
-            opts.config.keepalive_interval,
-            opts.config.hold_interval,
-            false,
-        );
+        let session_opts =
+            SessionOpts::new(opts.config.router_id.clone(), opts.config.local_as, false);
+        let timer_opts =
+            TimerConfig::new(opts.config.keepalive_interval, opts.config.hold_interval);
         Ok(Router {
             opts,
             session_opts,
