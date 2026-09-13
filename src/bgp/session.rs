@@ -1,10 +1,13 @@
 use crate::bgp::timers::{TimerConfig, Timers};
-use crate::fsm::event::BGPEvent;
 use crate::fsm::BGPState;
+use crate::fsm::event::BGPEvent;
 use crate::net::Peer;
 use crate::packet::{BGPMessage, NotificationErrorCode, NotificationMessage, OpenMessage};
+use crate::util::{log_debug, log_error, log_warn};
 use crate::{fsm, util};
 use std::sync::mpsc;
+
+const MODULE: &str = "bgp.session";
 
 pub enum SessionEvent {
     MessageReceived(BGPMessage),
@@ -20,6 +23,7 @@ pub struct SessionOpts {
     local_as: u16,
     pub enable_timer_monitors: bool,
 }
+
 impl SessionOpts {
     pub fn new(router_id: String, local_as: u16, enable_timer_monitors: bool) -> SessionOpts {
         SessionOpts {
@@ -65,11 +69,19 @@ impl Session {
 
     pub fn apply_fsm_event(&mut self, event: BGPEvent) -> Result<(), String> {
         let next_state = fsm::on_event(self.state, event)?;
-        println!(
-            "[FSM] <peer={}> {:?} -> {:?}",
-            self.peer.get_ip(),
-            self.state,
-            next_state
+        log_debug(
+            MODULE,
+            "Got BGP message",
+            &[("type", "NOTIFICATION".to_string())],
+        );
+        log_debug(
+            MODULE,
+            "Applying FSM transition",
+            &[
+                ("peer", self.peer.get_ip().to_string()),
+                ("from", self.state.to_string()),
+                ("to", next_state.to_string()),
+            ],
         );
         self.state = next_state;
         Ok(())
@@ -86,7 +98,11 @@ impl Session {
     }
 
     pub fn teardown(&mut self) -> Result<(), String> {
-        println!("[SESSION] Tearing down connection with peer");
+        log_warn(
+            MODULE,
+            "Tearing down connection with peer",
+            &[("peer", self.peer.get_ip().to_string())],
+        );
         self.peer.close()?;
         self.apply_fsm_event(BGPEvent::PeerDisconnected)?;
 
@@ -100,7 +116,11 @@ impl Session {
         loop {
             let event = self.rx_event_chan.recv().unwrap();
             if let Err(e) = self.dispatch_event_handler(event) {
-                println!("[SESSION] Terminating session: {}", e);
+                log_error(
+                    MODULE,
+                    "Terminating session due to error",
+                    &[("error", e.to_string())],
+                );
                 break;
             }
         }
@@ -125,7 +145,11 @@ impl Session {
             opt_len: 0,
             opts: Vec::new(),
         };
-        println!("[SENDER] Sending OPEN: {:?}", open_msg);
+        log_debug(
+            MODULE,
+            "Sending OPEN message",
+            &[("to", self.peer.get_ip().to_string())],
+        );
         let bgp_msg = BGPMessage::Open(open_msg);
         self.peer.send_message(bgp_msg).map_err(|e| e.to_string())?;
 
@@ -137,7 +161,14 @@ impl Session {
     fn handle_msg(&mut self, msg: BGPMessage) -> Result<(), String> {
         match msg {
             BGPMessage::Open(open) => {
-                println!("[HANDLE_MSG] Got OPEN: {:?}", open);
+                log_debug(
+                    MODULE,
+                    "Got BGP message from peer",
+                    &[
+                        ("type", "OPEN".to_string()),
+                        ("from", self.peer.get_ip().to_string()),
+                    ],
+                );
                 self.negotiation.open_received = true;
                 // For OPEN:
                 // - Validate peer metadata and store
@@ -156,11 +187,22 @@ impl Session {
 
                 self.apply_fsm_event(BGPEvent::OpenReceived)?;
 
-                println!("[SENDER] Sending KEEPALIVE");
+                log_debug(
+                    MODULE,
+                    "Sending KEEPALIVE after OPEN received",
+                    &[("to", self.peer.get_ip().to_string())],
+                );
                 self.peer.send_message(BGPMessage::KeepAlive)
             }
             BGPMessage::KeepAlive => {
-                println!("[HANDLE_MSG] Got KEEPALIVE");
+                log_debug(
+                    MODULE,
+                    "Got BGP message from peer",
+                    &[
+                        ("type", "KEEPALIVE".to_string()),
+                        ("from", self.peer.get_ip().to_string()),
+                    ],
+                );
                 // For KEEPALIVE:
                 // - Transition to Established
                 // - If first time transitioning into establishing:
@@ -177,7 +219,15 @@ impl Session {
                     .map_err(|e| e.to_string())
             }
             BGPMessage::Notification(notification) => {
-                println!("[HANDLE_MSG] Got NOTIFICATION: {:?}", notification);
+                log_debug(
+                    MODULE,
+                    "Got BGP message from peer",
+                    &[
+                        ("type", "NOTIFICATION".to_string()),
+                        ("err_code", notification.err_code.to_string()),
+                        ("from", self.peer.get_ip().to_string()),
+                    ],
+                );
                 // For NOTIFICATION:
                 // - Check error code
                 // - Most cases require session teardown
@@ -188,58 +238,130 @@ impl Session {
     }
 
     pub fn handle_keepalive_expiry(&mut self) -> Result<(), String> {
-        println!("[KEEPALIVE] Timer expired, sending new KEEPALIVE message");
+        log_debug(
+            MODULE,
+            "KEEPALIVE timer expired, sending new message",
+            &[
+                (
+                    "interval",
+                    self.timers
+                        .negotiated_cfg
+                        .keepalive_interval
+                        .as_secs()
+                        .to_string(),
+                ),
+                ("to", self.peer.get_ip().to_string()),
+            ],
+        );
         self.peer.send_message(BGPMessage::KeepAlive)?;
         self.timers.update_last_keepalive_tx();
         Ok(())
     }
 
     pub fn handle_hold_expiry(&mut self) -> Result<(), String> {
-        println!("[HANDLE_MSG] Timer expired, sending notification message");
+        log_error(
+            MODULE,
+            "HOLD timer expired, sending NOTIFICATION message",
+            &[
+                (
+                    "interval",
+                    self.timers
+                        .negotiated_cfg
+                        .hold_interval
+                        .as_secs()
+                        .to_string(),
+                ),
+                ("to", self.peer.get_ip().to_string()),
+                ("type", "NOTIFICATION".to_string()),
+                (
+                    "err_code",
+                    NotificationErrorCode::HoldTimerExpired.to_string(),
+                ),
+            ],
+        );
         let notification_msg =
             NotificationMessage::new(NotificationErrorCode::HoldTimerExpired, 0, Vec::new());
         self.peer
             .send_message(BGPMessage::Notification(notification_msg))?;
-        println!("[HOLD] Timer expired, tearing down session");
+        log_error(
+            MODULE,
+            "HOLD timer expired, tearing down session",
+            &[
+                (
+                    "interval",
+                    self.timers
+                        .negotiated_cfg
+                        .hold_interval
+                        .as_secs()
+                        .to_string(),
+                ),
+                ("peer", self.peer.get_ip().to_string()),
+            ],
+        );
         self.teardown()?;
         Err("Hold timer expired, terminating session".to_string())
     }
 
     pub fn handle_hold_refresh(&mut self) -> Result<(), String> {
-        println!("[HOLD] Got keepalive, refreshing hold timer");
+        log_debug(
+            MODULE,
+            "Refreshed hold timer",
+            &[
+                ("peer", self.peer.get_ip().to_string()),
+                (
+                    "interval",
+                    self.timers
+                        .negotiated_cfg
+                        .hold_interval
+                        .as_secs()
+                        .to_string(),
+                ),
+            ],
+        );
         self.timers.update_last_keepalive_rx();
         Ok(())
     }
 
     pub fn handle_peer_disconnect(&mut self) -> Result<(), String> {
-        println!("[SESSION] Peer disconnected");
+        log_error(
+            MODULE,
+            "Peer disconnected",
+            &[("peer", self.peer.get_ip().to_string())],
+        );
         self.teardown()?;
         Err("Peer disconnected, terminating session".to_string())
     }
 
     pub fn start_reader_thread(&mut self, tx_event_chan: mpsc::Sender<SessionEvent>) {
-        println!("[THREAD SPAWN] Start reader thread");
+        log_debug(
+            MODULE,
+            "Starting reader thread",
+            &[("peer", self.peer.get_ip().to_string())],
+        );
         let mut peer_reader = self.peer.clone_reader().unwrap();
         std::thread::spawn(move || {
             loop {
                 match peer_reader.recv_message() {
                     Ok(msg) => {
-                        println!("[READER] Got message");
                         if tx_event_chan
                             .send(SessionEvent::MessageReceived(msg))
                             .is_err()
                         {
-                            println!("[READER] Session already gone");
+                            log_error(MODULE, "Session already gone", &[]);
                             break;
                         }
                     }
                     Err(e) => {
-                        println!("[READER] {}", e);
+                        log_error(
+                            MODULE,
+                            "Error receiving message from peer",
+                            &[("error", e.to_string())],
+                        );
                         if tx_event_chan
                             .send(SessionEvent::PeerDisconnected())
                             .is_err()
                         {
-                            println!("[READER] Session already gone");
+                            log_error(MODULE, "Session already gone", &[("error", e.to_string())]);
                         }
                         break;
                     }

@@ -1,6 +1,8 @@
 use crate::packet::{BGPHeader, BGPMessageType};
-use crate::util::format_bgp_id;
+use crate::util::{format_bgp_id, log_debug};
 use std::fmt;
+
+const MODULE: &str = "packet.open";
 
 const OPEN_MESSAGE_MIN_LEN: usize = 10;
 
@@ -68,12 +70,7 @@ pub fn parse_open_msg(buf: &[u8]) -> Result<OpenMessage, String> {
     let bgp_id = u32::from_be_bytes([buf[5], buf[6], buf[7], buf[8]]);
     let opt_len = buf[9];
 
-    if opt_len as usize > 0 {
-        println!(
-            "Got extra opts for BGP Open message, of len: {}",
-            opt_len as usize
-        );
-    }
+    log_debug(MODULE, "Got BGP message", &[("type", "OPEN".to_string())]);
 
     Ok(OpenMessage {
         version,
@@ -81,6 +78,6 @@ pub fn parse_open_msg(buf: &[u8]) -> Result<OpenMessage, String> {
         hold_time,
         bgp_id,
         opt_len,
-        opts: vec![0; opt_len as usize],
+        opts: vec![0; opt_len as usize], // TODO: Parse actual opts
     })
 }

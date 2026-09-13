@@ -10,6 +10,7 @@ use clap::Parser;
 pub struct CLIArgs {
     #[arg(value_enum)]
     pub config_file_path: String,
+    pub log_level: u8,
 }
 
 pub fn get_args() -> CLIArgs {
