@@ -1,5 +1,8 @@
 use crate::packet::{BGPHeader, BGPMessageType};
+use crate::util::log_debug;
 use std::fmt;
+
+const MODULE: &str = "packet.notification";
 
 const NOTIFICATION_MESSAGE_MIN_LEN: usize = 2;
 
@@ -11,6 +14,7 @@ pub enum NotificationErrorCode {
     FSMError = 5,
     Cease = 6,
 }
+
 impl NotificationErrorCode {
     pub fn from_u8(byte: u8) -> Result<NotificationErrorCode, String> {
         match byte {
@@ -30,6 +34,18 @@ impl NotificationErrorCode {
             NotificationErrorCode::HoldTimerExpired => 4,
             NotificationErrorCode::FSMError => 5,
             NotificationErrorCode::Cease => 6,
+        }
+    }
+}
+
+impl fmt::Display for NotificationErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NotificationErrorCode::MessageHeaderError => write!(f, "MessageHeaderError"),
+            NotificationErrorCode::OpenMessageError => write!(f, "OpenMessageError"),
+            NotificationErrorCode::HoldTimerExpired => write!(f, "HoldTimerExpired"),
+            NotificationErrorCode::FSMError => write!(f, "FSMError"),
+            NotificationErrorCode::Cease => write!(f, "Cease"),
         }
     }
 }
@@ -94,13 +110,14 @@ pub fn parse_notification_msg(buf: &[u8]) -> Result<NotificationMessage, String>
     let err_sub_code = buf[1];
     let mut data: Vec<u8> = Vec::new();
     if (buf.len() - NOTIFICATION_MESSAGE_MIN_LEN) > 0 {
-        let data_buf = buf[2..].to_vec();
-        println!(
-            "Got extra data for BGP Notification message, of len: {}",
-            data_buf.len()
-        );
         data = buf[2..].to_vec();
     }
+
+    log_debug(
+        MODULE,
+        "Got BGP message",
+        &[("type", "NOTIFICATION".to_string())],
+    );
 
     Ok(NotificationMessage {
         err_code,

@@ -1,7 +1,10 @@
 use crate::bgp::session::SessionEvent;
+use crate::util::{log_debug, log_error};
 use std::cmp::min;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
+
+const MODULE: &str = "bgp.session";
 
 pub const MONITOR_PRINT_INTERVAL_KEEPALIVE_S: u64 = 10;
 pub const MONITOR_PRINT_INTERVAL_HOLD_S: u64 = MONITOR_PRINT_INTERVAL_KEEPALIVE_S * 3;
@@ -48,12 +51,24 @@ impl Timers {
         // Update self
         self.negotiated_cfg.hold_interval = neg_hold_interval;
         self.negotiated_cfg.keepalive_interval = neg_keepalive_interval;
-        println!(
-            "[NEGOTIATION] Local Hold={}s Peer Hold={}s Negotiated Hold={}s Keepalive={}s",
-            local_hold_interval.as_secs(),
-            peer_hold_interval.as_secs(),
-            neg_hold_interval.as_secs(),
-            neg_keepalive_interval.as_secs(),
+        log_debug(
+            MODULE,
+            "Negotiated Timers",
+            &[
+                (
+                    "local_hold_interval",
+                    local_hold_interval.as_secs().to_string(),
+                ),
+                (
+                    "peer_hold_interval",
+                    peer_hold_interval.as_secs().to_string(),
+                ),
+                ("neg_hold_interval", neg_hold_interval.as_secs().to_string()),
+                (
+                    "neg_keepalive_interval",
+                    neg_keepalive_interval.as_secs().to_string(),
+                ),
+            ],
         );
     }
 
@@ -68,7 +83,14 @@ impl Timers {
     }
 
     pub fn start_keepalive_timer_thread(&mut self, tx_event_chan: mpsc::Sender<SessionEvent>) {
-        println!("[THREAD_SPAWN] Start keepalive timer thread");
+        log_debug(
+            MODULE,
+            "Starting keepalive timer thread",
+            &[(
+                "interval",
+                format!("{}", self.negotiated_cfg.hold_interval.as_secs()),
+            )],
+        );
         let timer = Arc::clone(&self.last_keepalive_tx);
         let interval = self.negotiated_cfg.keepalive_interval;
         std::thread::spawn(move || {
@@ -80,7 +102,7 @@ impl Timers {
                         .send(SessionEvent::KeepAliveTimerExpired)
                         .is_err()
                     {
-                        println!("[KEEPALIVE_THREAD] Session already gone");
+                        log_error(MODULE, "Session already gone", &[]);
                         break;
                     }
                 }
@@ -89,7 +111,14 @@ impl Timers {
     }
 
     pub fn start_hold_timer_thread(&mut self, tx_event_chan: mpsc::Sender<SessionEvent>) {
-        println!("[THREAD_SPAWN] Start hold timer thread");
+        log_debug(
+            MODULE,
+            "Starting hold timer thread",
+            &[(
+                "interval",
+                format!("{}", self.negotiated_cfg.hold_interval.as_secs()),
+            )],
+        );
         let timer = Arc::clone(&self.last_keepalive_rx);
         let interval = self.negotiated_cfg.hold_interval;
         std::thread::spawn(move || {
@@ -98,7 +127,7 @@ impl Timers {
                 let timer_inst = timer.lock().unwrap();
                 if timer_inst.elapsed().as_secs() > interval.as_secs() {
                     if tx_event_chan.send(SessionEvent::HoldTimerExpired).is_err() {
-                        println!("[HOLD_THREAD] Session already gone");
+                        log_error(MODULE, "Session already gone", &[]);
                         break;
                     }
                 }
@@ -112,9 +141,10 @@ impl Timers {
             loop {
                 std::thread::sleep(Duration::from_secs(MONITOR_PRINT_INTERVAL_KEEPALIVE_S));
                 let timer_inst = timer.lock().unwrap();
-                println!(
-                    "Hold timer elapsed seconds -- {}",
-                    timer_inst.elapsed().as_secs()
+                log_debug(
+                    MODULE,
+                    "Keepalive timer elapsed seconds",
+                    &[("seconds", timer_inst.elapsed().as_secs().to_string())],
                 );
             }
         });
@@ -126,9 +156,10 @@ impl Timers {
             loop {
                 std::thread::sleep(Duration::from_secs(MONITOR_PRINT_INTERVAL_HOLD_S));
                 let timer_inst = timer.lock().unwrap();
-                println!(
-                    "Hold timer elapsed seconds -- {}",
-                    timer_inst.elapsed().as_secs()
+                log_debug(
+                    MODULE,
+                    "Hold timer elapsed seconds",
+                    &[("seconds", timer_inst.elapsed().as_secs().to_string())],
                 );
             }
         });

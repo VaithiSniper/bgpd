@@ -11,7 +11,7 @@ use crate::net::{Router, RouterOpts};
 
 fn main() {
     let cli_args = get_args();
-    let opts = RouterOpts::new(cli_args.config_file_path).unwrap();
+    let opts = RouterOpts::new(cli_args.config_file_path, cli_args.log_level).unwrap();
     let mut router = Router::new(opts).unwrap();
 
     router.start();

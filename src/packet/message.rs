@@ -1,4 +1,4 @@
-use crate::packet::{BGPHeader, BGPMessageType, NotificationMessage, OpenMessage, BGP_HEADER_LEN};
+use crate::packet::{BGP_HEADER_LEN, BGPHeader, BGPMessageType, NotificationMessage, OpenMessage};
 
 pub enum BGPMessage {
     Open(OpenMessage),
